@@ -2,7 +2,7 @@
 
 ## Why the median, not the mean
 
-Run times are not bell-shaped. They have a hard floor (the work itself) and a long right tail: a context switch, a page-cache miss, a garbage collection, a burst from another process. One 3-second outlier among fifteen 500 ms runs drags the mean up by more than 150 ms. It moves the median by at most one rank. measure reports the mean, standard deviation and coefficient of variation (cv = sd / mean) so you can see the noise, but the gain and its confidence interval are built on medians.
+Run times are not bell-shaped. They have a hard floor (the work itself) and a long right tail: a context switch, a page-cache miss, a garbage collection, a burst from another process. One 3-second outlier among fifteen 500 ms runs drags the mean up by more than 150 ms. It moves the median by at most one rank. measure reports the mean, standard deviation and coefficient of variation (cv = sd / mean) so you can see the noise, but the gain and its confidence interval are built on the median of per-pair ratios.
 
 A cv above 5% is a warning: the environment or the workload is noisy. Run `measure doctor`, remove what it flags, or lengthen the workload.
 
@@ -18,18 +18,22 @@ sequential:   A A A A A A A A                B B B B B B B B
 
 measure runs pairs instead. Each pair runs A and B back to back in an order chosen by a coin flip (a randomized block design). Both sides see the same conditions at almost the same moment, so slow drift cancels. The random order also cancels "whoever runs second gets a warm cache". The seed is recorded in the JSON, so the exact schedule can be replayed.
 
-Interleaving does not cancel noise that changes faster than one pair, such as bursty background load. That noise widens the CI instead, which is the honest outcome.
+Interleaving does not cancel noise that changes faster than one pair, such as a burst that starts between the two runs. That noise widens the CI instead, which is the honest outcome.
 
-## What the bootstrap CI means, and what it doesn't
+## How the CI is computed
 
-The gain *g* is defined so that above 1 always means B is better: median(A) / median(B) for times and memory, median(B) / median(A) with `--higher-better`. To get a 95% interval, measure resamples A and B independently with replacement 10,000 times, recomputes *g* each time and takes the 2.5th and 97.5th percentiles (a percentile bootstrap).
+Each pair gives one ratio: a / b for times and memory, b / a with `--higher-better`, so above 1 always means B was better in that pair. The gain *g* is the median of the per-pair ratios (taken on logs). Pairing matters: what both runs of a pair shared (the clock speed at that moment, slow drift, a long burst of load) cancels in the ratio instead of adding variance to both sides.
+
+The interval is the sign-test interval for that median: sort the n ratios and take the k-th smallest and the k-th largest, with k from the Binomial(n, ½) distribution. For 15 pairs that is the 4th and the 12th, which cover 96.5%. There is no resampling and no assumption about the noise. For identical code, the coin flip that orders each pair makes its ratio equally likely to land above or below 1, independently of every other pair, whatever the machine is doing. So an interval for identical code excludes 1 with probability at most 5%, even under drift, bursts and outliers. Below 6 pairs no 95% interval exists and the verdict stays INCONCLUSIVE.
+
+`tests/simulate_null.py` checks this on synthetic noise (drift, bursts, heavy tails, periodic load): 3% to 4% of 15-pair intervals exclude 1 for identical code. On the same noise, the unpaired bootstrap measure used before detected a real 5% gain within 60 pairs 81% of the time under drift (paired: 97%) and 10% of the time under heavy load (paired: 32%), because drift and load land in both sides' spread instead of cancelling. On a quiet machine the two are close.
 
 It **means**: given the runs you collected, gains outside this interval are poorly supported. A narrow interval is a precise estimate; a wide one says "collect more runs or reduce noise".
 
 It **does not mean**:
 - There is a 95% chance the true gain lies in this exact interval. The CI is a property of the procedure, not of one result.
 - The change helps in production. It holds for this workload, input, build and machine only.
-- The runs are independent. The bootstrap assumes they are. Bursty background load breaks that assumption, so a CI for identical code can exclude 1.0 on a busy machine. The min-effect band absorbs small artifacts like that, and `doctor` tells you when to distrust the machine.
+- The ratio holds at other load levels. If the change interacts with load (more threads, more memory bandwidth), its gain depends on how busy the machine was. `doctor` tells you when to distrust the machine.
 
 ## Why `--min-effect` exists
 
@@ -43,6 +47,8 @@ Statistical significance asks "is there any difference?". With enough runs, almo
 | INCONCLUSIVE | anything else: the CI straddles a boundary |
 
 NO_EFFECT is a positive finding: "whatever this change does, it is smaller than m". INCONCLUSIVE means the data cannot tell yet. `--until-conclusive` adds batches of 10 pairs up to `--max-runs`. If the budget runs out, the change has not earned its place: treat it as NO_EFFECT and revert.
+
+Every look at the data is another chance to stop on noise. With 6 looks (15, 25, ..., 60 pairs) at 95% each, intervals for identical code excluded 1 about 11% of the time in simulation. So an early stop must clear a stricter interval, 1 − 0.05 / looks (99.2% for 6 looks), and only the last look uses 95%; that brings it back to 3% to 4%. The verdict line prints the level it stopped at: `99.2% CI` means an interim look.
 
 Pick m for the workload: 2% suits macro workloads (a build, a request, a batch job). Microbenchmarks with very low noise can use 1%; noisy end-to-end systems may need 5%. Choose m **before** looking at the result.
 

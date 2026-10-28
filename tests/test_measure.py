@@ -101,8 +101,8 @@ def noisy(rng, center, spread, n):
 
 
 class StatisticsTests(unittest.TestCase):
-    def verdict(self, a, b, higher_better=False, seed=11, m=0.02):
-        lo, hi = measure.bootstrap_ci(a, b, higher_better, seed)
+    def verdict(self, a, b, higher_better=False, m=0.02):
+        lo, hi = measure.gain_ci(a, b, higher_better)
         return measure.decide(lo, hi, m), lo, hi
 
     def test_improved(self):
@@ -133,10 +133,51 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(self.verdict(a, b, higher_better=True)[0], measure.IMPROVED)
         self.assertEqual(self.verdict(a, b, higher_better=False)[0], measure.REGRESSED)
 
-    def test_bootstrap_deterministic(self):
-        rng = random.Random(6)
-        a, b = noisy(rng, 1.0, 0.05, 15), noisy(rng, 0.9, 0.05, 15)
-        self.assertEqual(measure.bootstrap_ci(a, b, False, 42), measure.bootstrap_ci(a, b, False, 42))
+    def test_ci_ranks(self):
+        self.assertEqual(measure.median_ci_rank(15, 0.95), 4)  # [d(4), d(12)], coverage 96.5%
+        self.assertEqual(measure.median_ci_rank(5, 0.95), 0)
+        self.assertEqual(measure.min_pairs(0.95), 6)
+        self.assertEqual(measure.gain_ci([1.0] * 5, [1.0] * 5, False), (0.0, float("inf")))
+
+    def test_gain_is_median_of_pair_ratios(self):
+        a, b = [2.0, 4.0, 8.0], [1.0, 2.0, 2.0]
+        self.assertAlmostEqual(measure.paired_gain(a, b, False), 2.0)
+        self.assertAlmostEqual(measure.paired_gain(a, b, True), 0.5)
+
+    def test_values_must_be_positive_and_paired(self):
+        with self.assertRaises(measure.MeasureError):
+            measure.gain_ci([1.0, 0.0], [1.0, 1.0], False)
+        with self.assertRaises(measure.MeasureError):
+            measure.gain_ci([1.0, 1.0], [1.0], False)
+
+    def test_shared_drift_cancels(self):
+        # Both sides slow down 40% over the session; B is 5% faster within every pair.
+        rng = random.Random(7)
+        drift = [1.0 + 0.4 * i / 30 for i in range(30)]
+        a = [d * (1 + rng.uniform(-0.005, 0.005)) for d in drift]
+        b = [d / 1.05 * (1 + rng.uniform(-0.005, 0.005)) for d in drift]
+        v, lo, hi = self.verdict(a, b)
+        self.assertEqual(v, measure.IMPROVED)
+        self.assertLess(hi - lo, 0.02)
+
+    def test_null_coverage_under_bursty_load(self):
+        # The coin-flip order makes the interval exact whatever the noise does.
+        import simulate_null
+        miss = 0
+        for s in range(2000):
+            a, b = simulate_null.simulate_pairs("loaded", 7919 * s + 1)
+            lo, hi = measure.gain_ci(a[:15], b[:15], False)
+            miss += not lo <= 1.0 <= hi
+        self.assertLessEqual(miss / 2000, 0.05)
+
+    def test_look_levels(self):
+        self.assertEqual(measure.look_schedule(15, 60, False), [15])
+        self.assertEqual(measure.look_schedule(15, 60, True), [15, 25, 35, 45, 55, 60])
+        self.assertEqual(measure.look_schedule(15, 15, True), [15])
+        self.assertAlmostEqual(measure.look_level(0, 6), 1 - 0.05 / 6)
+        self.assertAlmostEqual(measure.look_level(4, 6), 1 - 0.05 / 6)
+        self.assertEqual(measure.look_level(5, 6), 0.95)
+        self.assertEqual(measure.look_level(0, 1), 0.95)
 
     def test_decide_boundaries(self):
         self.assertEqual(measure.decide(1.03, 1.10, 0.02), measure.IMPROVED)
@@ -284,7 +325,7 @@ class CliTests(unittest.TestCase):
     def test_compare_json_records_everything(self):
         with tempfile.TemporaryDirectory() as d:
             out = os.path.join(d, "c.json")
-            code, text, _ = run_main(["compare", "--runs", "4", "--warmup", "0", "--seed", "5",
+            code, text, _ = run_main(["compare", "--runs", "6", "--warmup", "0", "--seed", "5",
                                       "--parse", r"v=(\d+)", "--ignore-line", "^noise", "-o", out,
                                       "--a", "echo v=10; echo noise $$", "--b", "echo v=10; echo noise $$"])
             with open(out) as f:
@@ -293,12 +334,13 @@ class CliTests(unittest.TestCase):
         self.assertEqual(data["verdict"], measure.NO_EFFECT)
         self.assertTrue(data["verdict_line"].startswith("VERDICT NO_EFFECT"))
         self.assertEqual(data["seed"], 5)
-        self.assertEqual(data["schedule"], measure.make_schedule(4, 5))
-        self.assertEqual([s["side"] for s in data["samples"]], list("".join(measure.make_schedule(4, 5))))
+        self.assertEqual(data["schedule"], measure.make_schedule(6, 5))
+        self.assertEqual([s["side"] for s in data["samples"]], list("".join(measure.make_schedule(6, 5))))
         self.assertTrue(data["outputs_identical"])
+        self.assertEqual(data["looks"], [{"pairs": 6, "ci_level": 0.95, "ci": [1.0, 1.0], "verdict": "NO_EFFECT"}])
 
     def test_rss_metric(self):
-        code, out, _ = run_main(["compare", "--metric", "rss", "--runs", "3", "--warmup", "0", "--seed", "1",
+        code, out, _ = run_main(["compare", "--metric", "rss", "--runs", "6", "--warmup", "0", "--seed", "1",
                                  "--a", "python3 -c 'x = bytearray(80_000_000)'",
                                  "--b", "python3 -c 'x = bytearray(8_000_000)'"])
         self.assertEqual(code, measure.EXIT_OK, out)

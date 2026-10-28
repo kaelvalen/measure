@@ -64,7 +64,7 @@ Make one change in the working tree. Run the tests and build.
 ```
 measure compare --a-cwd .measure/base --b-cwd . --until-conclusive -o .measure/cmp-N.json -- <cmd>
 ```
-This warms up both sides, then runs A/B pairs in randomized order. It prints a 95% bootstrap CI of the gain (above 1 always means B is better), the output check and one `VERDICT` line. That line is the only thing you may quote. Add `--ignore-line REGEX` for output lines that legitimately vary (timestamps). Use `--strict-output` to abort on any difference.
+This warms up both sides, then runs A/B pairs in randomized order. It prints a paired CI of the gain (above 1 always means B is better; 95%, or stricter when it stops early), the output check and one `VERDICT` line. That line is the only thing you may quote. Add `--ignore-line REGEX` for output lines that legitimately vary (timestamps). Use `--strict-output` to abort on any difference.
 
 ### 7. Decide
 | Verdict | Action |
@@ -124,4 +124,4 @@ Even then, Iron rule 1 still applies to any claim you make.
 ## Pointers
 
 - `reference/profilers.md`: permission errors, install commands, per-language flags (py-spy, perf, Go, Node, JVM, GPU/ML workloads).
-- `reference/statistics.md`: read it when a verdict is surprising (interleaving, bootstrap, min-effect, why gains don't multiply, common traps).
+- `reference/statistics.md`: read it when a verdict is surprising (interleaving, the paired CI, min-effect, why gains don't multiply, common traps).

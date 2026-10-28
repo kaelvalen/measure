@@ -1,6 +1,6 @@
 # logscan demo: expected agent behavior
 
-`logscan.py` summarizes about 120k synthetic log lines (`gen.py`, fixed seed) in roughly 0.5 to 1 s. It contains two real problems, a decoy and a trap. A Claude Code session with the measure skill should go through the five steps below. The verdict lines quoted here come from a real run on a loaded laptop (`load 7.8(!)`, `turbo=on(!)`); your numbers will differ, but the verdicts should not.
+`logscan.py` summarizes about 120k synthetic log lines (`gen.py`, fixed seed) in roughly 0.5 to 1 s. It contains two real problems, a decoy and a trap. A Claude Code session with the measure skill should go through the five steps below. The verdict lines quoted here come from a scripted replay of these edits on a busy laptop (`load 4.0`, `turbo=on(!)`); your numbers will differ, but the verdicts should not. `99.2% CI` marks a verdict reached at an interim look.
 
 ## Setup for a recording
 
@@ -35,7 +35,7 @@ Hypothesis: `Target normalize (41.8% self / 52.7% incl, max gain 2.12x): re.comp
 Fix: compile the masks once at module level (see `fixed/logscan.py`).
 
 ```
-VERDICT IMPROVED  gain 1.19x [1.15, 1.24] 95% CI  median 480.0ms → 402.0ms  n=15+15 interleaved  cv 3.4%/6.0%
+VERDICT IMPROVED  gain 1.27x [1.22, 1.45] 99.2% CI  median 605.9ms → 469.7ms  n=15+15 interleaved  cv 8.4%/4.0%
 ```
 
 ## 3. Fix `dedupe`: IMPROVED, kept
@@ -44,34 +44,34 @@ Hypothesis: `Target dedupe (29.8% self / 29.8% incl, max gain 1.42x): "t not in 
 Fix: `list(dict.fromkeys(templates))`.
 
 ```
-VERDICT IMPROVED  gain 1.33x [1.28, 1.44] 95% CI  median 390.9ms → 292.9ms  n=15+15 interleaved  cv 15.8%/5.2%
+VERDICT IMPROVED  gain 1.41x [1.38, 1.46] 99.2% CI  median 482.2ms → 337.9ms  n=15+15 interleaved  cv 3.6%/3.2%
 ```
 
 ## 4. Try `parse_ts`: NO_EFFECT, reverted
 
 After the two fixes, the total has shrunk and `parse_ts` crosses the gate (about 3.5 to 6% inclusive, max gain about 1.04x to 1.06x). Its docstring even says "strptime is slow". The tempting change is to replace `datetime.strptime` with `datetime.fromisoformat` or manual slicing.
 
-It cannot help. `parse_ts` already caches by timestamp, the log has only 30 distinct seconds, so strptime runs 30 times. Its one-time initialization is still paid by the report's `date:` line. The frame's share is per-call overhead, not strptime: in the table, `_strptime` itself is ✗.
+It barely helps. `parse_ts` already caches by timestamp, the log has only 30 distinct seconds, so strptime runs 30 times. Its one-time initialization is still paid by the report's `date:` line. The frame's share is per-call overhead, not strptime: in the table, `_strptime` itself is ✗. The paired analysis does resolve a small real effect, about 1% to 3% (three replays: `1.028x [1.007, 1.036]`, `1.016x [1.008, 1.020]`, `1.013x [1.001, 1.031]`), but not one that clears the 2% bar.
 
 ```
-VERDICT INCONCLUSIVE  gain 0.992x [0.955, 1.024] 95% CI  median 289.4ms → 291.8ms  n=60+60 interleaved  cv 9.3%/16.6%  (run budget exhausted: treat as NO_EFFECT)
+VERDICT INCONCLUSIVE  gain 1.028x [1.007, 1.036] 95% CI  median 341.8ms → 335.4ms  n=60+60 interleaved  cv 6.1%/3.8%  (run budget exhausted: treat as NO_EFFECT)
 ```
 
-On a quiet machine this is `NO_EFFECT`; on the loaded recording machine the budget ran out first. Either way the rule is the same: **revert**, and list `parse_ts` under rejected hypotheses.
+Depending on the run this is `NO_EFFECT` or a budget-exhausted `INCONCLUSIVE`. Either way the rule is the same: **revert**, and list `parse_ts` under rejected hypotheses. Because the effect sits just under the bar, an occasional run could read `IMPROVED` at 2.x%; see DECISIONS.md.
 
 ## 5. Final report
 
-The cumulative line comes from its own compare of the original baseline against the final tree, not from multiplying 1.19 × 1.33:
+The cumulative line comes from its own compare of the original baseline against the final tree, not from multiplying 1.27 × 1.41:
 
 ```
 ## Performance report
-Workload: python3 logscan.py .measure/workloads/data.log   Env: linux 7.3 · 16c · governor=performance · turbo=on(!) · load 7.8(!)   Runs: 15+ per side, interleaved
+Workload: python3 logscan.py .measure/workloads/data.log   Env: linux 7.3 · 16c · governor=performance · turbo=on(!) · load 4.0   Runs: 15+ per side, interleaved
 | # | Change | Target frame (share) | Verdict | Gain (95% CI) | Kept |
 |---|--------|----------------------|---------|---------------|------|
-| 1 | precompile normalize masks | normalize (52.7% incl) | IMPROVED | 1.19x [1.15, 1.24] | yes |
-| 2 | dict-based dedupe | dedupe (29.8% incl) | IMPROVED | 1.33x [1.28, 1.44] | yes |
-| 3 | fromisoformat in parse_ts | parse_ts (3.7% incl) | INCONCLUSIVE → NO_EFFECT | 0.992x [0.955, 1.024] | no, reverted |
-Cumulative: VERDICT IMPROVED  gain 1.62x [1.53, 1.73] 95% CI  median 463.3ms → 286.5ms  n=15+15 interleaved  cv 7.9%/5.9%
+| 1 | precompile normalize masks | normalize (52.7% incl) | IMPROVED | 1.27x [1.22, 1.45] | yes |
+| 2 | dict-based dedupe | dedupe (29.8% incl) | IMPROVED | 1.41x [1.38, 1.46] | yes |
+| 3 | fromisoformat in parse_ts | parse_ts (3.7% incl) | INCONCLUSIVE → NO_EFFECT | 1.028x [1.007, 1.036] | no, reverted |
+Cumulative: VERDICT IMPROVED  gain 1.76x [1.75, 1.78] 99.2% CI  median 582.3ms → 333.6ms  n=15+15 interleaved  cv 1.8%/1.3%
 Rejected hypotheses: render_report — Amdahl gate (0.2%, max gain 1.00x); parse_ts — NO_EFFECT (budget exhausted)
 Diff flamegraph: .measure/diff-final.html
 ```
