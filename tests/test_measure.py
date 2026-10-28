@@ -337,7 +337,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(data["schedule"], measure.make_schedule(6, 5))
         self.assertEqual([s["side"] for s in data["samples"]], list("".join(measure.make_schedule(6, 5))))
         self.assertTrue(data["outputs_identical"])
-        self.assertEqual(data["looks"], [{"pairs": 6, "ci_level": 0.95, "ci": [1.0, 1.0], "verdict": "NO_EFFECT"}])
+        self.assertEqual(data["looks"], [{"pairs": 6, "ci_level": 0.95, "ci_rank": 1, "ci": [1.0, 1.0], "verdict": "NO_EFFECT"}])
 
     def test_rss_metric(self):
         code, out, _ = run_main(["compare", "--metric", "rss", "--runs", "6", "--warmup", "0", "--seed", "1",

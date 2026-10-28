@@ -108,14 +108,13 @@ def scan(path):
     per_second = {}
     counts = {}
     templates = []
-    first = last = None
-    first_date = None
+    first = last = started = None
     with open(path) as f:
         for line in f:
             date, clock, level, host, msg = line.rstrip("\n").split(" ", 4)
             ts = parse_ts(date, clock)
             if first is None:
-                first, first_date = ts, date
+                first, started = ts, datetime.strptime(date + " " + clock, TS_FORMAT)
             last = ts
             per_second[ts] = per_second.get(ts, 0) + 1
             levels[level] = levels.get(level, 0) + 1
@@ -125,7 +124,7 @@ def scan(path):
     uniq = dedupe(templates)
     top = min(per_second, key=lambda s: (-per_second[s], s))
     stats = {"lines": len(templates), "levels": levels, "first": first or 0, "last": last or 0,
-             "date": datetime.strptime(first_date, "%Y-%m-%d").strftime("%a %d %b %Y") if first_date else "-",
+             "date": started.strftime("%a %d %b %Y") if started else "-",
              "busiest": datetime.fromtimestamp(top, timezone.utc).strftime("%H:%M:%S UTC"),
              "busiest_lines": per_second[top]}
     return render_report(stats, uniq, counts)

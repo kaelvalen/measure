@@ -35,9 +35,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: false-positive rate under simulated noise (the 5% claim)
+      - name: power under simulated noise (the 5% bound itself is tests/test_sequential_exact.py)
         run: python tests/simulate_null.py --sims 2000 --check
-      - name: self-compare smoke test on the real workload
+      - name: A/A smoke test, identical code at paths of different lengths
         run: python tests/self_compare_smoke.py --reps 3
 
   plugin-manifest:
