@@ -24,7 +24,10 @@ $M doctor
 echo "== 2. profile (py-spy)"
 $M profile --cwd "$WORK/base" -o "$WORK/prof-base" -- "$CMD" | tee "$WORK/profile.txt"
 grep -q "normalize (logscan.py" "$WORK/profile.txt" || fail "normalize missing from hotspots"
-grep -Eq "✗ +render_report" "$WORK/profile.txt" || fail "render_report (decoy) not marked by the Amdahl gate"
+# On a fast machine the decoy may get no samples at all, which also keeps it out of reach.
+if grep -q "render_report" "$WORK/profile.txt"; then
+  grep -Eq "✗ +render_report" "$WORK/profile.txt" || fail "render_report (decoy) not marked by the Amdahl gate"
+fi
 
 echo "== 3. apply the reference fix"
 cp "$EX/fixed/logscan.py" "$WORK/cand/logscan.py"

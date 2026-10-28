@@ -28,14 +28,17 @@ jobs:
       - run: pip install py-spy
       - run: bash tests/e2e.sh
 
-  false-positive-rate:
+  statistics:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python tests/false_positive_rate.py --reps 20 --max-rate 0.05
+      - name: false-positive rate under simulated noise (the 5% claim)
+        run: python tests/simulate_null.py --sims 2000 --check
+      - name: self-compare smoke test on the real workload
+        run: python tests/self_compare_smoke.py --reps 3
 
   plugin-manifest:
     runs-on: ubuntu-latest

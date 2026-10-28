@@ -4,7 +4,7 @@
 Subcommands:
   doctor     check the machine for benchmarking noise and profiler access
   bench      time one command
-  compare    interleaved A/B benchmark with a bootstrap CI and a verdict
+  compare    interleaved A/B benchmark with a paired CI and a verdict
   profile    sample a command and write collapsed stacks (PREFIX.folded)
   hotspots   self/inclusive table with the Amdahl gate
   diff       before/after diff flame graph as a self-contained HTML file
@@ -50,7 +50,6 @@ INCONCLUSIVE = "INCONCLUSIVE"
 VERDICT_EXIT = {IMPROVED: EXIT_OK, NO_EFFECT: EXIT_NO_EFFECT,
                 INCONCLUSIVE: EXIT_NO_EFFECT, REGRESSED: EXIT_REGRESSED}
 
-BOOTSTRAP_RESAMPLES = 10000
 CI_LEVEL = 0.95
 BATCH_PAIRS = 10
 CV_WARN = 0.05
@@ -162,34 +161,89 @@ def summarize(xs):
     }
 
 
-def _median_sorted(xs):
-    n = len(xs)
-    mid = n // 2
-    return xs[mid] if n % 2 else (xs[mid - 1] + xs[mid]) / 2.0
+def pair_log_gains(a, b, higher_better):
+    """log gain of each pair (a[i], b[i]); above 0 means B was better in that pair."""
+    if len(a) != len(b):
+        raise MeasureError("paired analysis needs one A and one B value per pair")
+    if min(a) <= 0 or min(b) <= 0:
+        raise MeasureError("the gain is a ratio, so metric values must be positive")
+    if higher_better:
+        return [math.log(y / x) for x, y in zip(a, b)]
+    return [math.log(x / y) for x, y in zip(a, b)]
 
 
-def gain_of(a_med, b_med, higher_better):
-    """Gain > 1 always means B is better than A."""
-    num, den = (b_med, a_med) if higher_better else (a_med, b_med)
-    if den == 0:
-        return math.inf if num > 0 else 1.0
-    return num / den
+def paired_gain(a, b, higher_better):
+    """Point estimate: exp(median of per-pair log gains)."""
+    return math.exp(statistics.median(pair_log_gains(a, b, higher_better)))
 
 
-def bootstrap_ci(a, b, higher_better, seed, resamples=BOOTSTRAP_RESAMPLES, level=CI_LEVEL):
-    """Percentile bootstrap CI for the gain, resampling A and B independently."""
-    rng = random.Random(seed)
-    na, nb = len(a), len(b)
-    gains = []
-    for _ in range(resamples):
-        ma = _median_sorted(sorted(rng.choices(a, k=na)))
-        mb = _median_sorted(sorted(rng.choices(b, k=nb)))
-        gains.append(gain_of(ma, mb, higher_better))
-    gains.sort()
-    tail = (1.0 - level) / 2.0
-    lo = gains[int(math.floor(tail * resamples))]
-    hi = gains[int(math.ceil((1.0 - tail) * resamples)) - 1]
-    return lo, hi
+def _binom_half_cdf(k, n):
+    """P(X <= k) for X ~ Binomial(n, 1/2)."""
+    return sum(math.comb(n, i) for i in range(k + 1)) / 2 ** n  # int / int: no overflow for large n
+
+
+def median_ci_rank(n, level):
+    """Largest k such that [d_(k), d_(n+1-k)] covers the median with probability >= level.
+
+    0 when n is too small for any interval at that level.
+    """
+    k = 0
+    while k < n // 2 and 2 * _binom_half_cdf(k, n) <= 1.0 - level:
+        k += 1
+    return k
+
+
+def min_pairs(level):
+    """Fewest pairs that allow an interval at this level."""
+    n = 2
+    while median_ci_rank(n, level) == 0:
+        n += 1
+    return n
+
+
+def gain_ci(a, b, higher_better, level=CI_LEVEL):
+    """Distribution-free CI of the paired gain (sign-test inversion on per-pair log gains).
+
+    Pair i is a[i] and b[i], run back to back in a coin-flip order. The per-pair ratio
+    cancels what both runs shared (drift, the load at that moment). The coin flip makes
+    each pair's noise term equally likely to favor either side, independently of every
+    other pair, whatever the noise process is (bursts, waves, outliers). So the interval
+    between two order statistics covers the median log gain with exactly binomial
+    probability, without assuming independent runs. Returns (0, inf) when there are too
+    few pairs for the level.
+    """
+    d = sorted(pair_log_gains(a, b, higher_better))
+    k = median_ci_rank(len(d), level)
+    if k == 0:
+        return 0.0, math.inf
+    return math.exp(d[k - 1]), math.exp(d[len(d) - k])
+
+
+def look_schedule(runs, max_runs, until_conclusive):
+    """Pair counts at which compare computes a verdict."""
+    looks = [runs]
+    if until_conclusive:
+        while looks[-1] < max_runs:
+            looks.append(min(looks[-1] + BATCH_PAIRS, max_runs))
+    return looks
+
+
+def look_level(i, n_looks):
+    """CI level at look i of n_looks.
+
+    An early stop on an interim look must clear a Bonferroni share of alpha; the last
+    look, which nothing follows, uses the nominal level.
+    """
+    if i == n_looks - 1:
+        return CI_LEVEL
+    return 1.0 - (1.0 - CI_LEVEL) / n_looks
+
+
+def evaluate_look(a, b, higher_better, min_effect, i, n_looks):
+    """One look of compare: (verdict, lo, hi, level)."""
+    level = look_level(i, n_looks)
+    lo, hi = gain_ci(a, b, higher_better, level)
+    return decide(lo, hi, min_effect), lo, hi, level
 
 
 def decide(lo, hi, min_effect):
@@ -641,11 +695,11 @@ def first_difference(a_lines, b_lines):
     return None
 
 
-def verdict_line(verdict, gain, lo, hi, a_sum, b_sum, kind, budget_exhausted):
+def verdict_line(verdict, gain, lo, hi, level, a_sum, b_sum, kind, budget_exhausted):
     g, l, h = fmt_ratios(gain, lo, hi)
     f = lambda v: fmt_value(v, kind)
-    line = "VERDICT %s  gain %sx [%s, %s] %d%% CI  median %s → %s  n=%d+%d interleaved  cv %.1f%%/%.1f%%" % (
-        verdict, g, l, h, int(CI_LEVEL * 100), f(a_sum["median"]), f(b_sum["median"]),
+    line = "VERDICT %s  gain %sx [%s, %s] %g%% CI  median %s → %s  n=%d+%d interleaved  cv %.1f%%/%.1f%%" % (
+        verdict, g, l, h, round(level * 100, 1), f(a_sum["median"]), f(b_sum["median"]),
         a_sum["n"], b_sum["n"], a_sum["cv"] * 100, b_sum["cv"] * 100)
     if budget_exhausted:
         line += "  (run budget exhausted: treat as NO_EFFECT)"
@@ -669,6 +723,9 @@ def cmd_compare(args):
             raise MeasureError("directory not found: %s" % d)
     if args.runs < 2:
         raise MeasureError("--runs must be at least 2")
+    if median_ci_rank(args.runs, CI_LEVEL) == 0:
+        print("WARNING: %d pairs are too few for a %g%% interval; the verdict will be INCONCLUSIVE "
+              "until there are %d." % (args.runs, CI_LEVEL * 100, min_pairs(CI_LEVEL)), file=sys.stderr)
     max_runs = max(args.max_runs, args.runs)
     seed = args.seed if args.seed is not None else int(time.time() * 1000) % (2 ** 31)
     kind = metric_kind(args)
@@ -687,9 +744,10 @@ def cmd_compare(args):
     outputs = {}
     samples = []
     out_diff = None
-    target = args.runs
     done = 0
-    while True:
+    looks = look_schedule(args.runs, max_runs, args.until_conclusive)
+    history = []
+    for i, target in enumerate(looks):
         schedule = make_schedule(target, seed)
         for pair in range(done, target):
             for side in schedule[pair]:
@@ -711,23 +769,28 @@ def cmd_compare(args):
                             print("--strict-output: aborting before any timing counts.")
                             return EXIT_OUTPUT_DIFF
         done = target
-        lo, hi = bootstrap_ci(values["A"], values["B"], args.higher_better, seed)
-        verdict = decide(lo, hi, args.min_effect)
-        print("[measure] %d pairs: %s" % (done, verdict), file=sys.stderr)
-        if not args.until_conclusive or verdict != INCONCLUSIVE or done >= max_runs:
+        verdict, lo, hi, level = evaluate_look(values["A"], values["B"], args.higher_better,
+                                               args.min_effect, i, len(looks))
+        history.append({"pairs": done, "ci_level": level, "ci": [lo, hi], "verdict": verdict})
+        print("[measure] %d pairs: %s at %g%% CI" % (done, verdict, round(level * 100, 1)),
+              file=sys.stderr)
+        if verdict != INCONCLUSIVE:
             break
-        target = min(done + BATCH_PAIRS, max_runs)
 
     budget_exhausted = bool(args.until_conclusive and verdict == INCONCLUSIVE)
     a_sum, b_sum = summarize(values["A"]), summarize(values["B"])
-    gain = gain_of(a_sum["median"], b_sum["median"], args.higher_better)
-    line = verdict_line(verdict, gain, lo, hi, a_sum, b_sum, kind, budget_exhausted)
+    gain = paired_gain(values["A"], values["B"], args.higher_better)
+    line = verdict_line(verdict, gain, lo, hi, level, a_sum, b_sum, kind, budget_exhausted)
     hashes = {s: output_hash(outputs[s]) for s in "AB"}
     env = env_line()
     result = {
         "tool": "measure", "version": VERSION, "kind": "compare",
         "verdict": verdict, "verdict_line": line, "gain": gain, "ci": [lo, hi],
-        "ci_level": CI_LEVEL, "resamples": BOOTSTRAP_RESAMPLES,
+        "ci_level": level,
+        "analysis": {"estimator": "exp(median(per-pair log gain))",
+                     "ci": "sign-test inversion (order statistics of per-pair log gains)",
+                     "ci_ranks": [median_ci_rank(done, level), done + 1 - median_ci_rank(done, level)]},
+        "looks": history,
         "min_effect": args.min_effect, "higher_better": bool(args.higher_better),
         "metric": METRIC_JSON[kind], "parse": args.parse,
         "ignore_line": args.ignore_line or [], "seed": seed, "pairs": done,
