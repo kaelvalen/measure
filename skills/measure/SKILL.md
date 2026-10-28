@@ -46,6 +46,12 @@ git worktree add --detach .measure/base "${SNAP:-HEAD}"
 ```
 `git stash create` captures uncommitted tracked changes without touching the working tree. Untracked files are not captured; copy the ones the workload needs into both worktrees. Build the baseline in `.measure/base` the same way you build the working tree. `.measure/orig` stays frozen for the final cumulative compare. `.measure/base` moves forward after each kept change.
 
+Then calibrate, before any edit. The working tree and `.measure/base` now hold the same code in different directories, so this compare must read NO_EFFECT:
+```
+measure compare --a-cwd .measure/base --b-cwd . --until-conclusive -o .measure/cmp-aa.json -- <cmd>
+```
+Randomized order cancels noise, but not a bias tied to a side: path length and environment size shift memory layout, and builds or caches can differ by directory. If the A/A compare reads IMPROVED or REGRESSED, that bias exceeds the minimum effect. Remove the cause if you can (same build steps, same input path, both sides built fresh), or rerun every compare in this session with `--min-effect` above the farther bound of the A/A interval, and say so. If it reads INCONCLUSIVE after the budget, the machine is too noisy for this minimum effect: fix what doctor flagged or raise `--min-effect`. Quote the A/A verdict line in the final report.
+
 ### 3. Profile the baseline
 ```
 measure profile --cwd .measure/base -o .measure/prof-base-N -- <cmd>
@@ -105,6 +111,7 @@ Every performance task ends with this report:
 ```
 ## Performance report
 Workload: <cmd>   Env: <doctor env line>   Runs: <n per side, interleaved>
+A/A calibration: <verdict line of .measure/cmp-aa.json>
 | # | Change | Target frame (share) | Verdict | Gain (95% CI) | Kept |
 |---|--------|----------------------|---------|---------------|------|
 Cumulative: <first baseline → final>, verdict line from a final compare of the original baseline vs HEAD

@@ -201,7 +201,7 @@ def min_pairs(level):
     return n
 
 
-def gain_ci(a, b, higher_better, level=CI_LEVEL):
+def gain_ci(a, b, higher_better, level=CI_LEVEL, rank=None):
     """Distribution-free CI of the paired gain (sign-test inversion on per-pair log gains).
 
     Pair i is a[i] and b[i], run back to back in a coin-flip order. The per-pair ratio
@@ -209,11 +209,11 @@ def gain_ci(a, b, higher_better, level=CI_LEVEL):
     each pair's noise term equally likely to favor either side, independently of every
     other pair, whatever the noise process is (bursts, waves, outliers). So the interval
     between two order statistics covers the median log gain with exactly binomial
-    probability, without assuming independent runs. Returns (0, inf) when there are too
-    few pairs for the level.
+    probability, without assuming independent runs. `rank` overrides the rank that
+    `level` implies. Returns (0, inf) when there are too few pairs for the level.
     """
     d = sorted(pair_log_gains(a, b, higher_better))
-    k = median_ci_rank(len(d), level)
+    k = median_ci_rank(len(d), level) if rank is None else rank
     if k == 0:
         return 0.0, math.inf
     return math.exp(d[k - 1]), math.exp(d[len(d) - k])
@@ -239,11 +239,46 @@ def look_level(i, n_looks):
     return 1.0 - (1.0 - CI_LEVEL) / n_looks
 
 
-def evaluate_look(a, b, higher_better, min_effect, i, n_looks):
-    """One look of compare: (verdict, lo, hi, level)."""
-    level = look_level(i, n_looks)
-    lo, hi = gain_ci(a, b, higher_better, level)
-    return decide(lo, hi, min_effect), lo, hi, level
+def null_exclusion_rate(looks, ranks):
+    """Exact chance that identical code gets an interval excluding 1 at any look.
+
+    Under the coin-flip order each pair favors B with probability 1/2, independently,
+    so a DP over S, the count of B-favoring pairs, is exact: the interval at a look with
+    n pairs and rank k excludes 1 when S <= k - 1 or S >= n - k + 1.
+    """
+    dist = [1.0]  # dist[s] = P(S = s and no earlier look excluded 1)
+    n = 0
+    total = 0.0
+    for target, k in zip(looks, ranks):
+        while n < target:
+            dist = [0.5 * ((dist[s] if s < len(dist) else 0.0) + (dist[s - 1] if s > 0 else 0.0))
+                    for s in range(len(dist) + 1)]
+            n += 1
+        if k > 0:
+            for s in range(n + 1):
+                if s <= k - 1 or s >= n - k + 1:
+                    total += dist[s]
+                    dist[s] = 0.0
+    return total
+
+
+def look_ranks(looks):
+    """Sign-test rank used at each look.
+
+    Interim looks use the Bonferroni level of look_level. The last look uses the nominal
+    level, widened (smaller rank) only when the exact false-positive rate of the whole
+    schedule would otherwise exceed 1 - CI_LEVEL. The default schedule needs no widening.
+    """
+    ranks = [median_ci_rank(n, look_level(i, len(looks))) for i, n in enumerate(looks)]
+    while ranks[-1] > 0 and null_exclusion_rate(looks, ranks) > 1.0 - CI_LEVEL:
+        ranks[-1] -= 1
+    return ranks
+
+
+def evaluate_look(a, b, higher_better, min_effect, rank):
+    """One look of compare: (verdict, lo, hi)."""
+    lo, hi = gain_ci(a, b, higher_better, rank=rank)
+    return decide(lo, hi, min_effect), lo, hi
 
 
 def decide(lo, hi, min_effect):
@@ -746,6 +781,7 @@ def cmd_compare(args):
     out_diff = None
     done = 0
     looks = look_schedule(args.runs, max_runs, args.until_conclusive)
+    ranks = look_ranks(looks)
     history = []
     for i, target in enumerate(looks):
         schedule = make_schedule(target, seed)
@@ -769,9 +805,11 @@ def cmd_compare(args):
                             print("--strict-output: aborting before any timing counts.")
                             return EXIT_OUTPUT_DIFF
         done = target
-        verdict, lo, hi, level = evaluate_look(values["A"], values["B"], args.higher_better,
-                                               args.min_effect, i, len(looks))
-        history.append({"pairs": done, "ci_level": level, "ci": [lo, hi], "verdict": verdict})
+        verdict, lo, hi = evaluate_look(values["A"], values["B"], args.higher_better,
+                                        args.min_effect, ranks[i])
+        level = look_level(i, len(looks))
+        history.append({"pairs": done, "ci_level": level, "ci_rank": ranks[i], "ci": [lo, hi],
+                        "verdict": verdict})
         print("[measure] %d pairs: %s at %g%% CI" % (done, verdict, round(level * 100, 1)),
               file=sys.stderr)
         if verdict != INCONCLUSIVE:
@@ -789,7 +827,8 @@ def cmd_compare(args):
         "ci_level": level,
         "analysis": {"estimator": "exp(median(per-pair log gain))",
                      "ci": "sign-test inversion (order statistics of per-pair log gains)",
-                     "ci_ranks": [median_ci_rank(done, level), done + 1 - median_ci_rank(done, level)]},
+                     "ci_ranks": [ranks[i], done + 1 - ranks[i]],
+                     "null_false_positive_bound": null_exclusion_rate(looks, ranks)},
         "looks": history,
         "min_effect": args.min_effect, "higher_better": bool(args.higher_better),
         "metric": METRIC_JSON[kind], "parse": args.parse,

@@ -1,9 +1,10 @@
-"""Simulated null for the statistics layer: how often does compare call identical code different?
+"""Power of compare under synthetic noise, plus a null sanity check.
 
-A real self-compare can only bound the false-positive rate loosely (0 of 20 bounds it at
-about 14%), and its noise is whatever the machine had that day. This script runs the exact
-look schedule and decision code of `measure compare` on synthetic timings, thousands of
-times, under noise models that break the textbook assumptions:
+The false-positive rate itself is a theorem, computed exactly in tests/test_sequential_exact.py:
+every noise model below depends only on the execution slot, not on the A/B label, so for
+identical code the coin-flip order makes the sign test exact and the null rows here can only
+re-confirm it. What this script adds is power: how often a real 5% gain is detected, and how
+many pairs it takes, under noise models that break the textbook assumptions:
 
   iid         lognormal noise, cv about 3%
   drift       iid plus a 20% slowdown over the session (thermal, turbo budget)
@@ -96,9 +97,10 @@ def unpaired_ci(a, b, seed, resamples, level=measure.CI_LEVEL):
 def sequential(a, b, seed, resamples, paired):
     """compare --until-conclusive on prefixes of the simulated pairs: (verdict, pairs used)."""
     looks = measure.look_schedule(RUNS, MAX_RUNS, True)
+    ranks = measure.look_ranks(looks)
     for i, n in enumerate(looks):
         if paired:
-            verdict = measure.evaluate_look(a[:n], b[:n], False, MIN_EFFECT, i, len(looks))[0]
+            verdict = measure.evaluate_look(a[:n], b[:n], False, MIN_EFFECT, ranks[i])[0]
         else:
             # Before: a 95% CI at every look.
             verdict = measure.decide(*unpaired_ci(a[:n], b[:n], seed, resamples), MIN_EFFECT)

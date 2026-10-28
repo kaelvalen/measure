@@ -40,13 +40,15 @@ set -e
 [ "$rc" -eq 0 ] || fail "compare exit $rc, expected 0"
 [ "$(verdict "$WORK/cmp.json")" = IMPROVED ] || fail "verdict $(verdict "$WORK/cmp.json"), expected IMPROVED"
 
-echo "== 5. compare base vs itself: expect NO_EFFECT, exit 2 (false-positive check)"
+echo "== 5. A/A: base vs an identical copy at a longer path: expect NO_EFFECT, exit 2"
+mkdir -p "$WORK/a-much-longer-directory-name-for-the-copy/aa"
+cp "$EX/logscan.py" "$WORK/a-much-longer-directory-name-for-the-copy/aa/"
 set +e
-$M compare --a-cwd "$WORK/base" --b-cwd "$WORK/base" --until-conclusive -o "$WORK/self.json" -- "$CMD"
+$M compare --a-cwd "$WORK/base" --b-cwd "$WORK/a-much-longer-directory-name-for-the-copy/aa" --until-conclusive -o "$WORK/self.json" -- "$CMD"
 rc=$?
 set -e
-[ "$rc" -eq 2 ] || fail "self-compare exit $rc, expected 2"
-[ "$(verdict "$WORK/self.json")" = NO_EFFECT ] || fail "self-compare verdict $(verdict "$WORK/self.json"), expected NO_EFFECT"
+[ "$rc" -eq 2 ] || fail "A/A compare exit $rc, expected 2"
+[ "$(verdict "$WORK/self.json")" = NO_EFFECT ] || fail "A/A verdict $(verdict "$WORK/self.json"), expected NO_EFFECT"
 
 echo "== 6. diff"
 $M profile --cwd "$WORK/cand" -o "$WORK/prof-cand" -- "$CMD" > /dev/null

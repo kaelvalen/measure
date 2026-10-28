@@ -1,6 +1,6 @@
 """Generate a synthetic log file for the logscan demo (fixed seed, deterministic).
 
-Usage: python3 gen.py [-n 120000] [--seed 42] [--seconds 30] [-o data.log]
+Usage: python3 gen.py [-n 120000] [--seed 42] [--seconds 3] [-o data.log]
 
 Each line: "YYYY-mm-dd HH:MM:SS LEVEL host message"
 """
@@ -42,7 +42,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-n", type=int, default=120000, help="number of lines")
     ap.add_argument("--seed", type=int, default=42)
-    ap.add_argument("--seconds", type=int, default=30, help="distinct timestamps (log span)")
+    ap.add_argument("--seconds", type=int, default=3, help="distinct timestamps (log span)")
     ap.add_argument("-o", default="data.log")
     args = ap.parse_args()
 
