@@ -1,0 +1,30 @@
+# ========
+# captured on    : Tue Oct 27 10:00:00 2026
+# cmdline : /usr/bin/perf record -F 999 -g -o p.perf.data -- sh -c ./myapp
+# ========
+#
+myapp 12345 [003] 12345.678901:     250000 cpu-clock:pppH: 
+	    55d5c3a01234 hash_bytes+0x24 (/usr/bin/myapp)
+	    55d5c3a05678 build_index+0x1f (/usr/bin/myapp)
+	    55d5c3a09abc main+0x40 (/usr/bin/myapp)
+	    7f0e1a229d8f __libc_start_call_main+0x7f (/usr/lib/x86_64-linux-gnu/libc.so.6)
+
+myapp 12345 [003] 12345.679901:     250000 cpu-clock:pppH: 
+	    55d5c3a01250 hash_bytes+0x40 (/usr/bin/myapp)
+	    55d5c3a05678 build_index+0x1f (/usr/bin/myapp)
+	    55d5c3a09abc main+0x40 (/usr/bin/myapp)
+	    7f0e1a229d8f __libc_start_call_main+0x7f (/usr/lib/x86_64-linux-gnu/libc.so.6)
+
+myapp 12345 [003] 12345.680901:     250000 cpu-clock:pppH: 
+	    ffffffff81a0b2c3 clear_page_erms+0x13 ([kernel.kallsyms])
+	    55d5c3a0aaaa std::vector<int, std::allocator<int> >::_M_realloc_insert(int const&)+0x10 (/usr/bin/myapp)
+	    55d5c3a05678 build_index+0x1f (/usr/bin/myapp)
+	    55d5c3a09abc main+0x40 (/usr/bin/myapp)
+
+myapp 12345 [003] 12345.681901:     250000 cpu-clock:pppH: 
+	    7f0e1a300000 [unknown] (/usr/lib/x86_64-linux-gnu/libc.so.6)
+	    55d5c3a09abc main+0x40 (/usr/bin/myapp)
+
+sh 12340 [001] 12345.600000:     250000 cpu-clock:pppH: 
+	    7f0e1a2f0000 __execve+0xb (/usr/lib/x86_64-linux-gnu/libc.so.6)
+

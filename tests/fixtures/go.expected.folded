@@ -1,0 +1,3 @@
+runtime.gcBgMarkWorker 50000
+testing.(*B).runN;example.com/bench.BenchmarkAdd;example.com/bench.(*Index).Add;example.com/bench.hashKey 750000
+testing.(*B).runN;example.com/bench.BenchmarkAdd;example.com/bench.(*Index).Add;runtime.growslice;runtime.mallocgc 300000

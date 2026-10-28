@@ -1,0 +1,23 @@
+File: bench.test
+Type: cpu
+Time: Oct 27, 2026 at 10:00am (UTC)
+Duration: 1.20s, Total samples = 1.10s (91.67%)
+-----------+-------------------------------------------------------
+     500ms   example.com/bench.hashKey
+             example.com/bench.(*Index).Add
+             example.com/bench.BenchmarkAdd
+             testing.(*B).runN
+-----------+-------------------------------------------------------
+     300ms   runtime.mallocgc
+             runtime.growslice
+             example.com/bench.(*Index).Add
+             example.com/bench.BenchmarkAdd
+             testing.(*B).runN
+-----------+-------------------------------------------------------
+     250ms   example.com/bench.hashKey (inline)
+             example.com/bench.(*Index).Add
+             example.com/bench.BenchmarkAdd
+             testing.(*B).runN
+-----------+-------------------------------------------------------
+      50ms   runtime.gcBgMarkWorker
+-----------+-------------------------------------------------------

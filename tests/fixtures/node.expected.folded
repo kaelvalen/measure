@@ -1,0 +1,4 @@
+(garbage collector) 500
+(program) 300
+main index.js:10;(anonymous) index.js:20 1200
+main index.js:10;parse parse.js:42 2000

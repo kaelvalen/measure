@@ -1,0 +1,4 @@
+myapp;__libc_start_call_main;main;build_index;hash_bytes 2
+myapp;main;[unknown] 1
+myapp;main;build_index;std::vector<int, std::allocator<int> >::_M_realloc_insert(int const&);clear_page_erms 1
+sh;__execve 1

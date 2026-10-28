@@ -1,0 +1,6 @@
+main;parse;tokenize 30
+main;parse 10
+main;render 4
+main;log 1
+main;fib;fib;fib 40
+main;fib 15

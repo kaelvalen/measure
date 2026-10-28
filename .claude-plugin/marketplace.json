@@ -1,0 +1,8 @@
+{
+  "name": "measure",
+  "description": "Evidence-based performance work for Claude Code",
+  "owner": { "name": "Kael Valen" },
+  "plugins": [
+    { "name": "measure", "source": "./", "description": "Profile before you optimize. Prove it or revert it." }
+  ]
+}

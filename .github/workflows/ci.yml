@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.9", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m unittest discover -s tests -v
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install py-spy
+      - run: bash tests/e2e.sh
+
+  false-positive-rate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python tests/false_positive_rate.py --reps 20 --max-rate 0.05
+
+  plugin-manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          python3 - <<'EOF'
+          import json
+          m = json.load(open(".claude-plugin/marketplace.json"))
+          p = json.load(open(".claude-plugin/plugin.json"))
+          assert {"name", "owner", "plugins"} <= set(m), "marketplace.json needs name, owner, plugins"
+          for entry in m["plugins"]:
+              assert {"name", "source"} <= set(entry), entry
+          assert m["plugins"][0]["name"] == p["name"], "entry name must equal plugin.json name"
+          print("manifests ok")
+          EOF

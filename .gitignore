@@ -1,0 +1,7 @@
+.measure/
+__pycache__/
+*.pyc
+.ruff_cache/
+examples/python-logscan/data.log
+examples/python-logscan/fixed/data.log
+evals/results/
